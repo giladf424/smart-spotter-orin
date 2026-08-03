@@ -1,0 +1,27 @@
+# TensorRT engine — device-specific build artifact, rebuilt on-box from ONNX
+models/*.engine
+models/*.engine.fingerprint
+
+# Model weights — trained off-device, large build artifact (use Git LFS or Drive if versioning is wanted)
+models/*.onnx
+
+# Captured stream test data — bulky, kept local
+models/*.h265
+models/*.hevc
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Env / secrets
+.env
+*.local
