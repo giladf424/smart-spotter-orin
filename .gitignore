@@ -9,6 +9,9 @@ models/*.onnx
 models/*.h265
 models/*.hevc
 
+# Rendered audit frames and detection dumps for the report — bulky, kept local
+report_assets/
+
 # Python
 __pycache__/
 *.py[cod]
