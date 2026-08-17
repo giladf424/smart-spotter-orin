@@ -36,7 +36,7 @@ from gi.repository import Gst, GLib  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-import sei  # noqa: E402
+from ingest import sei  # noqa: E402
 
 Gst.init(None)
 

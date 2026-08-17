@@ -8,11 +8,15 @@ taken directly from a replay's per-frame JSON output.
 """
 import json
 import sys
+from pathlib import Path
 
 import cv2
 
-sys.path.insert(0, "/app")
-from ingest import FrameIngest
+# Scripts here run with tools/ on sys.path, not the app root. Add the root so
+# the pipeline packages resolve.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ingest.pipeline import FrameIngest  # noqa: E402
 
 capture, picks_path, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 picks = {int(k): v for k, v in json.load(open(picks_path)).items()}

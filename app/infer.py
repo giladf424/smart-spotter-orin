@@ -30,9 +30,9 @@ import time
 import cv2
 
 import config
-from engine import TRTEngine
-from postprocess import preprocess, postprocess
-from zmq_sink import ZmqSink
+from detect.engine import TRTEngine
+from detect.postprocess import postprocess, preprocess
+from egress.zmq_sink import ZmqSink
 
 
 def _now_ms():
@@ -103,7 +103,7 @@ def run_test_image(args):
 # --- streaming (file or live) ----------------------------------------------
 def run_stream(args):
     # Imported here so --test-image works on hosts without GStreamer/gi.
-    from ingest import FrameIngest
+    from ingest.pipeline import FrameIngest
 
     eng = TRTEngine(args.engine)
     input_size = _resolve_input_size(args, eng)

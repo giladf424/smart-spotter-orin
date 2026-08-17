@@ -18,8 +18,13 @@ This closes the Pi's Q6 (SEI survives our path) and Q7 (format negotiates).
 
 import argparse
 import sys
+from pathlib import Path
 
-from ingest import FrameIngest
+# Scripts here run with tools/ on sys.path, not the app root. Add the root so
+# the pipeline packages resolve.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ingest.pipeline import FrameIngest  # noqa: E402
 
 
 class _Probe:
