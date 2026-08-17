@@ -15,7 +15,6 @@ Critical facts (from the Pi, verified against the real bitstream):
     frame_id. So matching on (type 39 + payloadType 5) alone is insufficient.
   - Emulation-prevention bytes (00 00 03) are present in the raw NAL; de-EPB
     before reading the payload.
-  - No AUD NALs; segment access units on the first VCL NAL (types 0..31).
 """
 
 import struct
@@ -30,8 +29,6 @@ SNIPE_UUID = bytes([
 _PT_USER_DATA_UNREGISTERED = 5
 # HEVC prefix-SEI NAL unit type.
 _NAL_PREFIX_SEI = 39
-# VCL NAL unit types are 0..31 (inclusive); first VCL NAL starts a new AU.
-_VCL_MAX = 31
 
 
 def iter_nal_units(data):
@@ -140,8 +137,3 @@ def extract_frame_id_from_nal(nal_type, nal_payload_epb):
     if nal_type != _NAL_PREFIX_SEI:
         return None
     return parse_sei_frame_id(nal_payload_epb)
-
-
-def is_vcl(nal_type):
-    """True if this NAL type is a VCL NAL (slice data) — i.e. picture data."""
-    return 0 <= nal_type <= _VCL_MAX

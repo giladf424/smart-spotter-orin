@@ -94,18 +94,13 @@ class TRTEngine:
     def input_shape(self):
         return self._input_shape
 
-    @property
-    def output_shape(self):
-        return self._output_shape
-
     def infer(self, input_array):
         """Run one forward pass.
 
         input_array: np.ndarray shaped like input_shape (1,3,N,N), FP32, NCHW,
                      contiguous. Caller (postprocess.preprocess) guarantees this.
-        returns:     np.ndarray copy of the raw output, shaped output_shape
-                     ([1,300,6]). A COPY, so the caller may keep it past the next
-                     infer() call.
+        returns:     np.ndarray copy of the raw output ([1,300,6]). A COPY, so
+                     the caller may keep it past the next infer() call.
         """
         arr = np.ascontiguousarray(input_array, dtype=self._input_dtype)
         if arr.shape != self._input_shape:
