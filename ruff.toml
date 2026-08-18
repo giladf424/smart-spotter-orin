@@ -1,0 +1,26 @@
+# Lint config for the Orin inference node.
+#
+# Lint only — we do not run `ruff format`. The code is hand-wrapped with
+# aligned continuations; the formatter would rewrite that into one argument
+# per line, which inflates the files without making them clearer. Keep new
+# code in the surrounding style and let `ruff check` catch real problems.
+#
+# ruff is not installed on the host. Run it in the container:
+#   docker run --rm -v ~/smart_spotter/orin:/repo -w /repo \
+#     --entrypoint bash smart-spotter-orin:dev \
+#     -c "pip3 install -q --break-system-packages ruff && ruff check ."
+
+target-version = "py312"
+# PEP 8's own limit, which the existing comment wrapping already targets.
+line-length = 79
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes: undefined names, unused imports
+    "I",    # import ordering
+    "B",    # bugbear: likely bugs
+    "UP",   # pyupgrade: outdated syntax
+    "SIM",  # simplifications
+]
