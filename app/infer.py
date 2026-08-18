@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
 """
-Inference orchestrator: wires ingest + engine + pre/post + ZMQ sink.
+Inference orchestrator: wires ingest, engine, pre/post and the ZMQ sink.
 
 Modes:
-  --test-image <path>       single still through the chain; prints JSON (half 2)
-  --source file --file <p>  decode a captured .hevc, run the full live chain
-                            offline (decoded frame -> detections -> message)
+  --test-image <path>       one still through the chain; prints JSON
+  --source file --file <p>  decode a captured .hevc and run the full chain
+                            offline (frame -> detections -> message)
   --source live             decode the live RTP stream from the Pi and push
                             detections over ZMQ
 
-The streaming modes reuse the validated ingest (ingest.FrameIngest, which yields
-(frame_id, frame_bgr) with the frame_id recovered from the encoded SEI) and the
-validated inference chain (preprocess -> engine -> postprocess). Each decoded
-frame produces one detection message carrying its real frame_id echoed from the
-SEI, which the Pi joins to capture-time pose.
+Both streaming modes take (frame_id, frame_bgr) pairs from
+ingest.pipeline.FrameIngest and run preprocess -> engine -> postprocess on
+each. Every decoded frame produces one message carrying the frame_id echoed
+from the stream's SEI, which the Pi joins back to the pose it recorded at
+capture time.
 
-The entrypoint launches this with:
-    python3 /app/infer.py --engine /models/model.engine --input-size 640 "$@"
-so --engine and --input-size override config defaults.
+Frames whose SEI yielded no frame_id are sent with frame_id 0, which the Pi
+cannot tell apart from a genuine frame 0. Those frames are counted separately
+as frames_without_frame_id in the end-of-run line.
 
-timestamp_ms: monotonic milliseconds (int) captured when inference completes.
+The entrypoint launches this as:
+    python3 /app/infer.py --engine ... --input-size "${DETECTOR_INPUT}" "$@"
+so --engine and --input-size override the config defaults.
+
+timestamp_ms is monotonic milliseconds: it has an arbitrary epoch, so it is
+only meaningful for measuring intervals between Orin messages, not against
+any clock on the Pi.
 """
 
 import argparse
@@ -35,7 +41,6 @@ from egress.zmq_sink import ZmqSink
 
 
 def _now_ms():
-    """Monotonic milliseconds (int)."""
     return int(time.monotonic() * 1000)
 
 
@@ -53,7 +58,8 @@ def _resolve_input_size(args, engine):
 
 
 def run_inference(engine, frame_bgr, input_size, frame_id):
-    """Full per-frame chain: preprocess -> infer -> postprocess -> message dict.
+    """Run one frame through the chain and build its message.
+
     Returns (message, n_detections). Shared by all modes."""
     tensor, transform = preprocess(frame_bgr, input_size)
     raw = engine.infer(tensor)
@@ -68,7 +74,7 @@ def run_inference(engine, frame_bgr, input_size, frame_id):
     return message, len(detections)
 
 
-# --- single still (half 2) --------------------------------------------------
+# --- single still -----------------------------------------------------------
 def run_test_image(args):
     frame = cv2.imread(args.test_image, cv2.IMREAD_COLOR)
     if frame is None:

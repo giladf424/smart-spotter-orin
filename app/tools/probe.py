@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Decode probe: validates NVDEC decode + frame_id association end to end.
+Decode probe: checks NVDEC decode and frame_id pairing end to end.
 
 Two modes:
-  --file <path.hevc>   decode the captured sample offline (no Pi needed)
+  --file <path.hevc>   decode a captured sample offline (no Pi needed)
   --live [--port N]    decode the live RTP/H265 stream from the Pi
 
-For each decoded frame it records (frame_id, width, height). At EOS (file mode)
-it prints a summary and checks the recovered frame_id sequence against the
-expectation that it is contiguous and 1:1 with frames — proving:
-  (a) NVDEC decodes the Pi's Main/L4.0/420 stream,
-  (b) we recover every frame_id by our UUID (x265's SEI rejected),
-  (c) the encoded-side SEI <-> decoded-frame ordering holds with no drift.
+Records (frame_id, width, height) per decoded frame and prints a summary: how
+many frame_ids were recovered, the frame dimensions, and whether the ids are
+contiguous. That covers NVDEC decoding the stream, the SEI parser picking our
+ids out rather than x265's, and encoded order still matching decoded order.
 
-This closes the Pi's Q6 (SEI survives our path) and Q7 (format negotiates).
+File mode ends at EOS and prints the summary. Live mode never sees EOS: the
+KeyboardInterrupt path below does not fire, because the GLib loop does not
+hand SIGINT back to Python, so a killed live run prints no summary — read the
+per-frame trace and the heartbeat counters instead.
 """
 
 import argparse

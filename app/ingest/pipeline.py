@@ -5,26 +5,28 @@ Pipeline:
   udpsrc -> rtpjitterbuffer -> rtph265depay -> h265parse -> nvv4l2decoder
          -> nvvidconv -> appsink (BGRx, CPU)
 
-frame_id recovery (the key design point):
-  The frame_id lives in an SEI NAL in the ENCODED stream. Once nvv4l2decoder
-  produces a raw frame the SEI is gone. So we DO NOT try to read SEI from the
-  decoded frame. Instead a pad probe on h265parse's SRC pad sees each encoded
-  access unit, runs sei.extract over its NALs, and pushes the recovered frame_id
-  onto an ordered FIFO. At appsink we pop the FIFO in order and pair it with the
-  decoded frame.
+frame_id recovery, the key design point:
+  The frame_id lives in an SEI NAL in the encoded stream, and is gone once
+  nvv4l2decoder produces a raw frame. So we never read SEI from the decoded
+  frame. A pad probe on h265parse's src pad sees each encoded access unit,
+  parses the frame_id out of its NALs, and appends it to an ordered FIFO;
+  appsink pops that FIFO in order and pairs each id with a decoded frame.
 
-  This is correct because the encoder runs bframes=0 / zerolatency, so decode
-  order == display order and the mapping is exactly 1 AU in -> 1 frame out, in
-  order. The pad probe runs before the decoder, so whether NVDEC preserves or
-  strips SEI is irrelevant to us — we never depend on it.
+  This rests on two things. The sender must not reorder frames (no B-frames),
+  so decode order equals display order; and each parser buffer must be one
+  whole access unit, so ids and frames stay in step. Check both with
+  `tools/probe.py --live`, which reports frame_ids recovered and whether they
+  are contiguous — any drift shows up there immediately.
 
-Stage counters (live mode): pad probes on udpsrc (RTP packets in), rtph265depay
-(NAL buffers out), and h265parse (AUs out) feed a periodic heartbeat line, so a
-stalled stage is visible directly instead of inferred from a silent run.
+  Because the probe sits ahead of the decoder, it does not matter whether
+  NVDEC preserves or strips SEI.
 
-This module also drives the offline probe: pointed at the sample .hevc via
-filesrc instead of udpsrc, it proves the frame_id<->frame association end to end
-without the live link.
+Stage counters (live mode): pad probes on udpsrc, rtph265depay and h265parse
+feed a periodic heartbeat line, so a stalled stage shows up in the log instead
+of the run just going quiet.
+
+Pointing this at a .hevc file with filesrc instead of udpsrc runs the same
+association offline, without the Pi.
 """
 
 import collections
@@ -41,7 +43,7 @@ from ingest import sei  # noqa: E402
 Gst.init(None)
 
 
-# Reference receive caps (from the Pi): RTP/H265, pt=96, clock-rate=90000.
+# Receive caps forced on udpsrc; must match what the Pi sends.
 _RTP_CAPS = (
     "application/x-rtp,media=video,encoding-name=H265,"
     "clock-rate=90000,payload=96"
@@ -65,11 +67,11 @@ class FrameIngest:
     def __init__(self, on_frame, source="live", udp_port=5600,
                  file_path=None, width=1920, height=1080, capture_path=None):
         """on_frame(frame_id_or_None, frame_bgr): called per decoded frame.
-        frame_id is None if no matching SEI was found for that frame (should not
-        happen on this stream, but we surface it rather than guess).
-        capture_path: if set, the encoded Annex-B stream (SEI included) is also
-        written to this file via a tee after the parser, so a live session can
-        be replayed later with source='file'."""
+        frame_id is None when no matching SEI was found for that frame; we
+        pass that through rather than guess an id.
+        capture_path: if set, the encoded stream is also written there via a
+        tee after the parser, so a live session can be replayed later with
+        source='file'."""
         self._on_frame = on_frame
         self._width = width
         self._height = height
@@ -80,18 +82,17 @@ class FrameIngest:
         self._fid_lock = threading.Lock()
 
         # Stage counters: [count, bytes] per stage, written on the streaming
-        # threads, read by the heartbeat on the main loop. int updates are
-        # GIL-atomic enough for a diagnostic counter.
+        # threads and read by the heartbeat on the main loop. Unsynchronised,
+        # which the GIL makes good enough for a diagnostic counter.
         self._stat_rtp = [0, 0]
         self._stat_depay = [0, 0]
         self._stat_au = [0, 0]
         self._live = source == "live"
 
-        # Mid-stream join guard: until the first keyframe AU arrives, delta
-        # AUs are dropped at the parser. Feeding reference-less P-frames to
-        # nvv4l2decoder exhausts its input pool and deadlocks the pipeline;
-        # dropping them lets decode (and the capture file) start cleanly at
-        # the first keyframe.
+        # Join guard: drop access units until the first keyframe arrives.
+        # Decode must start on a keyframe — feeding nvv4l2decoder P-frames
+        # whose references it never saw has been observed to exhaust its input
+        # pool and wedge the pipeline.
         self._await_key = True
         self._dropped_pre_key = 0
 
@@ -102,29 +103,29 @@ class FrameIngest:
     # --- pipeline construction ---------------------------------------------
     def _build_pipeline(self, source, udp_port, file_path, capture_path=None):
         if source == "live":
-            # buffer-size: the Pi bursts each encoded AU at GigE line rate, so
-            # the kernel socket buffer must hold at least one whole keyframe
-            # (~130-220 KB) or its tail packets are silently dropped and the
-            # depayloader discards the incomplete FU. Requires
-            # net.core.rmem_max >= this value, else the kernel clamps it.
+            # buffer-size must hold at least one whole keyframe. The sender
+            # can burst an access unit faster than we drain it, and an
+            # undersized socket buffer drops the tail packets silently,
+            # leaving the depayloader to discard an incomplete unit. The
+            # kernel clamps this to net.core.rmem_max, so raising it here
+            # alone is not enough.
             src = (
                 f"udpsrc name=rtpsrc port={udp_port} buffer-size=8388608 "
                 f"caps=\"{_RTP_CAPS}\" "
                 f"! rtpjitterbuffer latency=50 "
                 f"! rtph265depay name=depay "
-                # config-interval=-1: re-insert cached VPS/SPS/PPS before every
-                # keyframe. The Pi repeats parameter sets on a time interval,
-                # not per keyframe, so a keyframe AU is not otherwise
-                # guaranteed to be self-contained — and the decoder can only
-                # start on a keyframe that is.
+                # config-interval=-1 re-inserts cached VPS/SPS/PPS before
+                # every keyframe, so we never depend on how often the sender
+                # repeats them. The decoder can only start on a keyframe that
+                # carries them.
                 f"! h265parse name=parser config-interval=-1"
             )
         elif source == "file":
             if not file_path:
                 raise ValueError("source='file' requires file_path")
-            # Annex-B elementary stream straight into the parser. Same
-            # config-interval=-1 rationale as the live path (replay of a
-            # mid-stream capture may open on a keyframe without params).
+            # Annex-B elementary stream straight into the parser, with the
+            # same config-interval reasoning as the live path: a mid-stream
+            # capture may open on a keyframe that lacks parameter sets.
             src = (f"filesrc location={file_path} "
                    f"! h265parse name=parser config-interval=-1")
         else:
@@ -142,8 +143,8 @@ class FrameIngest:
                 "cap_tee. ! queue"
             )
 
-        # nvvidconv pulls NVMM->CPU and converts to BGRx; appsink hands us
-        # raw bytes. We keep only the newest frames if the consumer lags.
+        # nvvidconv pulls NVMM->CPU and converts to BGRx; appsink hands us raw
+        # bytes. drop=true keeps only the newest frames when we fall behind.
         desc = (
             f"{src} "
             f"! nvv4l2decoder "
@@ -155,7 +156,9 @@ class FrameIngest:
         )
         pipeline = Gst.parse_launch(desc)
 
-        # Pad probe on the parser SRC pad: every buffer here is one encoded AU.
+        # Pad probe on the parser src pad. The frame_id FIFO assumes one
+        # buffer here per access unit; that comes from the alignment h265parse
+        # negotiates downstream, not from anything set here.
         parser = pipeline.get_by_name("parser")
         srcpad = parser.get_static_pad("src")
         srcpad.add_probe(Gst.PadProbeType.BUFFER, self._on_au_probe, None)
@@ -199,14 +202,15 @@ class FrameIngest:
 
     # --- encoded-side SEI extraction ---------------------------------------
     def _on_au_probe(self, pad, info, _user):
-        """Runs per encoded access unit. Drops AUs until the first keyframe
-        (mid-stream join), then: parse SEI, enqueue frame_id in order.
+        """Runs once per encoded access unit: drop until the first keyframe,
+        then parse the frame_id and queue it in order.
 
-        Keyframes are detected from the NAL types (IRAP range 16-21: IDR,
-        BLA, CRA) rather than the DELTA_UNIT buffer flag, because h265parse
-        only clears the flag for IDR and the encoder may emit open-GOP CRA
-        keyframes. Dropped AUs never reach the decoder, the capture tee, or
-        the frame_id FIFO, so the 1 AU -> 1 frame pairing is preserved."""
+        Keyframes are identified by NAL type — 16-21 covers every IRAP type
+        HEVC currently defines (BLA 16-18, IDR 19-20, CRA 21; 22-23 are
+        reserved) — rather than by the DELTA_UNIT buffer flag, which is not
+        reliable for non-IDR keyframes. Dropped units reach neither the
+        decoder, the capture tee, nor the FIFO, so one unit still yields one
+        frame."""
         buf = info.get_buffer()
         ok, mapinfo = buf.map(Gst.MapFlags.READ)
         if not ok:
@@ -241,7 +245,7 @@ class FrameIngest:
 
         self._stat_au[0] += 1
         self._stat_au[1] += buf.get_size()
-        # Enqueue exactly one entry per AU (frame_id or None), preserving order.
+        # One entry per access unit, in order, even if the id is None.
         with self._fid_lock:
             self._fid_queue.append(frame_id)
         return Gst.PadProbeReturn.OK
@@ -261,7 +265,8 @@ class FrameIngest:
         if not ok:
             return Gst.FlowReturn.OK
         try:
-            # BGRx = 4 bytes/pixel. Build an (h, w, 4) view, drop alpha -> BGR.
+            # Assumes rows are tightly packed at width*4 bytes, with no
+            # padding from nvvidconv; BGRx is 4 bytes/pixel and x is dropped.
             arr = np.frombuffer(mapinfo.data, dtype=np.uint8)
             arr = arr[: width * height * 4].reshape(height, width, 4)
             frame_bgr = np.ascontiguousarray(arr[:, :, :3])

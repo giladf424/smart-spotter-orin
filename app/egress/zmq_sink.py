@@ -1,10 +1,10 @@
 """
 ZeroMQ detection egress: owns the Orin->Pi wire contract.
 
-The Orin PUSHes and connects; the Pi PULLs and binds at tcp://<pi-ip>:5556.
+The Orin PUSHes and connects; the Pi PULLs and binds (see config.ZMQ_ENDPOINT).
 PUSH/connect means the Orin can restart freely without the Pi reconfiguring.
 
-Message schema (locked, from PI_SIDE_BRIEF.md):
+Message schema (locked by the Pi-side contract):
   {
     "type": "target_detection",
     "frame_id": <uint32>,
@@ -14,7 +14,9 @@ Message schema (locked, from PI_SIDE_BRIEF.md):
        "bbox":{"x":..,"y":..,"width":..,"height":..}}
     ]
   }
-The Pi caps at 32 detections per message and ignores unknown fields.
+Detection count is capped by config.MAX_DETECTIONS_PER_MSG. timestamp_ms is a
+monotonic reading from this box, so it is comparable only to other Orin
+timestamps, not to any clock on the Pi.
 """
 
 import json
@@ -27,15 +29,15 @@ class ZmqSink:
     """PUSH socket that connects to the Pi's PULL bind and sends detections."""
 
     def __init__(self, endpoint=config.ZMQ_ENDPOINT, connect=True):
-        """endpoint: tcp://<pi-ip>:<port>. connect=False builds the socket but
-        does not connect (used by --test-image when not pushing)."""
+        """endpoint: tcp://<pi-ip>:<port>. connect=False builds the socket
+        without connecting, leaving send() to raise."""
         self._endpoint = endpoint
         self._ctx = zmq.Context.instance()
         self._sock = self._ctx.socket(zmq.PUSH)
         self._sock.setsockopt(zmq.LINGER, 0)
-        # Bounded queue + non-blocking send: if the Pi is down or slow, we
-        # drop messages instead of stalling the pipeline (send() runs inside
-        # the GStreamer streaming thread, so a blocking send freezes decode).
+        # send() runs on the GStreamer streaming thread, so it must never
+        # block: a bounded queue plus non-blocking send drops messages when
+        # the Pi is down or slow, rather than freezing decode.
         self._sock.setsockopt(zmq.SNDHWM, 100)
         self._dropped = 0
         self._connected = False
@@ -49,10 +51,10 @@ class ZmqSink:
                       max_detections=config.MAX_DETECTIONS_PER_MSG):
         """Build the wire dict from a list of postprocess.Detection.
 
-        detections are assumed already sorted by confidence desc; we trim to
-        max_detections (the highest-confidence ones survive the Pi's 32 cap).
-        Per-frame index ids are assigned here as strings starting at id_start.
-        bbox values are rounded to ints (source-frame pixels).
+        detections must already be sorted by confidence, descending: the list
+        is trimmed to max_detections, so the order decides which survive.
+        Ids are per-frame index strings starting at id_start, and bbox values
+        are rounded to whole source-frame pixels.
         """
         trimmed = detections[:max_detections]
         det_list = []
@@ -76,9 +78,9 @@ class ZmqSink:
         }
 
     def send(self, message):
-        """Serialize and PUSH one message dict, best-effort: if the send queue
-        is full (Pi down/slow), the message is dropped rather than blocking.
-        The Pi joins by frame_id, so gaps are equivalent to dropped frames."""
+        """Serialise and PUSH one message, best-effort: a full send queue
+        drops the message rather than blocking. A dropped message means the Pi
+        gets no detections at all for that frame."""
         if not self._connected:
             raise RuntimeError("ZmqSink.send called on a non-connected sink")
         payload = json.dumps(message, separators=(",", ":")).encode("utf-8")

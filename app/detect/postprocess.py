@@ -1,24 +1,24 @@
 """
 Pre- and post-processing for the YOLO26 detector.
 
-This module owns ALL bbox coordinate math. The letterbox transform applied in
-preprocess() and the inverse applied in postprocess() MUST be exact inverses of
-each other: the Pi's downstream FOV->angle geometry recovers a real-world
-bearing from these pixel coordinates, so any mismatch is a silent aiming error.
+This module owns all bbox coordinate math. The letterbox applied in
+preprocess() and the inverse applied in postprocess() must be exact inverses:
+the Pi turns these pixel coordinates into a real-world bearing, so a mismatch
+becomes a silent aiming error rather than a visible bug.
 
-Pipeline:
+Chain:
   preprocess(frame)  -> (nchw_fp32, transform)   # frame: HxWx3 BGR uint8
   engine.infer(...)  -> raw [1,300,6]
-  postprocess(raw, transform) -> list[Detection]  # boxes in SOURCE pixel space
+  postprocess(raw, transform) -> list[Detection]  # boxes in source pixels
 
-Letterbox: resize preserving aspect ratio, pad the short side with a constant to
-reach a square INPUT_SIZE x INPUT_SIZE. We record scale + pad so postprocess can
-undo it exactly. We do NOT stretch (anchor-free YOLO still benefits from correct
-aspect ratio, and stretch would distort the geometry the Pi depends on).
+Letterbox: resize keeping aspect ratio, then pad the short side out to a
+square of the requested input size. The scale and pad are recorded so
+postprocess can undo them exactly. Stretching instead would distort the
+geometry the Pi depends on.
 
-YOLO26 output is end-to-end: [1,300,6], each row [x1,y1,x2,y2,conf,class_id] in
-xyxy pixels of the INPUT_SIZE letterboxed space. NMS is baked into the graph —
-we do NOT run manual NMS. We only filter rows by confidence (col 4).
+YOLO26 output is end-to-end: [1,300,6], each row [x1,y1,x2,y2,conf,class_id]
+in xyxy pixels of the letterboxed space. NMS is baked into the graph, so we
+run none here — rows are only filtered by confidence (column 4).
 """
 
 from dataclasses import dataclass
@@ -44,8 +44,9 @@ class LetterboxTransform:
 
 @dataclass
 class Detection:
-    """One detection in SOURCE-frame pixel space (top-left origin, +x right,
-    +y down). x,y,width,height are floats; infer.py rounds/serializes them."""
+    """One detection in source-frame pixel space (top-left origin, +x right,
+    +y down). Coordinates are floats; ZmqSink.build_message rounds them to
+    whole pixels when building the wire message."""
     label: str
     confidence: float
     x: float
@@ -57,9 +58,9 @@ class Detection:
 def preprocess(frame_bgr, input_size):
     """Letterbox a BGR uint8 HxWx3 frame to an NCHW FP32 [1,3,S,S] tensor.
 
-    Returns (tensor, transform). tensor is RGB, normalized to [0,1], contiguous.
-    Ultralytics YOLO expects RGB, 0..1, NCHW — we match that exactly so the
-    interim engine and any future re-export agree on input semantics.
+    Returns (tensor, transform). The tensor is RGB, scaled to [0,1] and
+    contiguous, matching what Ultralytics YOLO expects, so the current engine
+    and any later re-export read their input the same way.
     """
     src_h, src_w = frame_bgr.shape[:2]
     scale = min(input_size / src_w, input_size / src_h)
@@ -69,7 +70,11 @@ def preprocess(frame_bgr, input_size):
     resized = cv2.resize(frame_bgr, (new_w, new_h),
                          interpolation=cv2.INTER_LINEAR)
 
-    # Center the resized image in the square canvas; pad with 114 (YOLO default).
+    # Centre it in the square canvas; 114 is the YOLO default pad value.
+    # The -0.1 before rounding is Ultralytics' convention: with an odd number
+    # of pad pixels it puts the extra one on the bottom/right. postprocess
+    # inverts using the integer pads recorded below, so the two agree however
+    # this rounds.
     pad_x = (input_size - new_w) / 2.0
     pad_y = (input_size - new_h) / 2.0
     top = int(round(pad_y - 0.1))
@@ -86,8 +91,8 @@ def preprocess(frame_bgr, input_size):
     chw = rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
     tensor = np.ascontiguousarray(chw[np.newaxis, ...])
 
-    # Record the ACTUAL integer pad used on the top/left (not the float), so the
-    # inverse is exact for the boxes the model emits in this padded canvas.
+    # Record the integer pad actually applied, not the float, so the inverse
+    # is exact for boxes the model emits in this canvas.
     transform = LetterboxTransform(
         scale=scale, pad_x=float(left), pad_y=float(top),
         src_w=src_w, src_h=src_h,
@@ -101,14 +106,13 @@ def postprocess(raw_output, transform, class_map, conf_threshold):
     raw_output: np.ndarray [1,300,6], rows [x1,y1,x2,y2,conf,class_id] in
                 detector (letterboxed) pixel space.
     transform:  the LetterboxTransform from preprocess().
-    class_map:  {int class_id -> str label}. Detections whose class id is not in
-                the map are dropped (e.g. interim person-only model ignores any
-                stray non-zero class).
+    class_map:  {int class_id -> str label}. Detections whose class id is
+                missing from the map are dropped.
     conf_threshold: float; rows with conf below this are dropped.
 
     returns list[Detection] in source pixel space, sorted by confidence desc.
     """
-    dets = raw_output.reshape(-1, 6)  # (300,6)
+    dets = raw_output.reshape(-1, 6)
 
     out = []
     inv_scale = 1.0 / transform.scale
@@ -127,8 +131,8 @@ def postprocess(raw_output, transform, class_map, conf_threshold):
         x2 = (float(row[2]) - transform.pad_x) * inv_scale
         y2 = (float(row[3]) - transform.pad_y) * inv_scale
 
-        # Clamp to source bounds (a box may extend a pixel past the edge after
-        # rounding; the Pi geometry expects in-frame coordinates).
+        # Clamp to source bounds: the model can predict boxes running off the
+        # canvas, and the Pi's geometry expects in-frame coordinates.
         x1 = min(max(x1, 0.0), transform.src_w)
         y1 = min(max(y1, 0.0), transform.src_h)
         x2 = min(max(x2, 0.0), transform.src_w)

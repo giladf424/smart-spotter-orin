@@ -1,8 +1,26 @@
+"""Remove the enable-cuda-compat hook from the host's CDI spec.
+
+Runs on the HOST, as root — not in the container; the Dockerfile never copies
+this in. nvidia-container-toolkit 1.19.1 ships a cudacompat hook that panics
+parsing an ELF header on Orin, so any container started with --runtime nvidia
+dies before it runs. Deleting the hook block from /etc/cdi/nvidia.yaml is the
+workaround.
+
+Must run after every `nvidia-ctk cdi generate`, because a fresh spec puts the
+hook back. nvidia-cdi-refresh.service does that automatically via an
+ExecStartPost drop-in, which calls the installed copy at
+/usr/local/sbin/strip-cuda-compat.py — keep that copy in sync with this file.
+
+The asserts are deliberate: once a fixed toolkit drops the hook, this fails
+loudly and the service goes red, which is the signal to remove the workaround.
+
+Full background: docs/environment/CDI-GPU-ACCESS.md
+"""
+
 p = "/etc/cdi/nvidia.yaml"
 with open(p) as f:
     lines = f.read().splitlines(keepends=True)
 
-# Find the line containing 'enable-cuda-compat'
 target = None
 for i, ln in enumerate(lines):
     if "enable-cuda-compat" in ln:
@@ -26,7 +44,6 @@ while end < len(lines):
         end += 1
         continue
     indent = len(ln) - len(ln.lstrip())
-    # next sibling list item or a dedent ends the block
     if indent <= block_indent and ln.lstrip().startswith("- "):
         break
     if indent < block_indent:

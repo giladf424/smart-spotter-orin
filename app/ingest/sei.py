@@ -7,14 +7,14 @@ the elementary-stream parsing logic; it is decoder-independent, so it can be
 validated on a captured .hevc file offline and then reused on whatever encoded
 buffer GStreamer hands us (e.g. via a pad probe ahead of the decoder).
 
-Critical facts (from the Pi, verified against the real bitstream):
-  - Our SEI: NAL type 39, payloadType 5, payload = 16-byte UUID + 4-byte BE
-    frame_id. UUID = SNIPE_UUID below.
-  - x265 ALSO emits a type-39 / payloadType-5 SEI (its version string) with a
-    DIFFERENT uuid. We MUST filter by our UUID, else we'd read x265's ASCII as a
-    frame_id. So matching on (type 39 + payloadType 5) alone is insufficient.
-  - Emulation-prevention bytes (00 00 03) are present in the raw NAL; de-EPB
-    before reading the payload.
+Facts this depends on, checkable against models/pi_sei_sample.hevc:
+  - Our SEI is NAL type 39, payloadType 5, payload = 16-byte UUID followed by
+    a 4-byte big-endian frame_id. The UUID is SNIPE_UUID below.
+  - x265 emits its own type-39 / payloadType-5 SEI carrying a version string,
+    under a different UUID. Matching on type and payloadType alone would read
+    that ASCII as a frame_id, so the UUID check is what makes this correct.
+  - Emulation-prevention bytes (00 00 03) appear in the raw NAL and must be
+    removed before reading the payload.
 """
 
 import struct
@@ -34,12 +34,12 @@ _NAL_PREFIX_SEI = 39
 def iter_nal_units(data):
     """Yield (nal_type, nal_payload_bytes) for each Annex-B NAL in `data`.
 
-    nal_payload_bytes is the NAL *after* the 2-byte NAL header, still EPB-coded.
+    nal_payload_bytes is the NAL after its 2-byte header, still EPB-coded.
     Handles both 3-byte (00 00 01) and 4-byte (00 00 00 01) start codes.
     """
     n = len(data)
     i = 0
-    # Find first start code.
+    # Collect every start-code offset first, so each NAL's end is known.
     starts = []
     while i < n - 3:
         if data[i] == 0 and data[i + 1] == 0:
@@ -59,7 +59,8 @@ def iter_nal_units(data):
         nal = data[nal_start:nal_end]
         if len(nal) < 2:
             continue
-        # HEVC NAL header: forbidden_zero(1) | nal_unit_type(6) | layer_id(6) | tid(3)
+        # HEVC NAL header: forbidden_zero(1) | nal_unit_type(6) |
+        # layer_id(6) | tid(3)
         nal_type = (nal[0] >> 1) & 0x3F
         yield nal_type, nal[2:]  # payload after 2-byte header
 
@@ -74,7 +75,6 @@ def remove_epb(rbsp_in):
     while i < n:
         b = rbsp_in[i]
         if zeros >= 2 and b == 0x03 and i + 1 < n and rbsp_in[i + 1] <= 0x03:
-            # Skip this emulation-prevention 0x03.
             zeros = 0
             i += 1
             continue

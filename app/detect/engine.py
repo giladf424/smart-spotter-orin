@@ -1,11 +1,9 @@
 """
 TensorRT engine wrapper: pure engine I/O.
 
-Loads a serialized .engine, allocates device/host buffers once, and runs
-inference on a preprocessed NCHW FP32 array, returning the raw output tensor.
-Knows NOTHING about images, letterboxing, or detection semantics — it is just
-"FP32 NCHW in, raw output array out". All detection meaning lives in
-postprocess.py.
+Loads a serialized .engine, allocates its device and host buffers once, and
+runs inference on a preprocessed NCHW FP32 array. It knows nothing about
+images, letterboxing or detection semantics — FP32 NCHW in, raw array out.
 
 Uses the native TensorRT Python API (python3-libnvinfer) plus cuda-python
 (cudart) for device memory and stream management. Both come from the image.
@@ -36,9 +34,9 @@ def _check(err, msg=""):
 class TRTEngine:
     """Load a TRT engine and run single-input/single-output inference.
 
-    Assumptions (true for this YOLO26 export):
+    Assumes, as the current YOLO26 export does:
       - exactly one input tensor and one output tensor
-      - static shapes (dynamic=False at export), so no shape setting per call
+      - static shapes, so nothing to set per call
       - input  : 'images'  [1,3,N,N] FP32 NCHW
       - output : 'output0' [1,300,6] FP32
     """
@@ -54,7 +52,8 @@ class TRTEngine:
 
         self._context = self._engine.create_execution_context()
 
-        # Resolve the single input and single output tensor names.
+        # Keeps the last input and the last output it finds, so an engine with
+        # several of either binds the wrong tensor rather than failing here.
         self._input_name = None
         self._output_name = None
         for i in range(self._engine.num_io_tensors):
@@ -65,8 +64,7 @@ class TRTEngine:
             else:
                 self._output_name = name
         if self._input_name is None or self._output_name is None:
-            raise RuntimeError(
-                "engine must have exactly one input and one output")
+            raise RuntimeError("engine needs at least one input and output")
 
         # Static shapes — read them once.
         self._input_shape = tuple(
@@ -117,7 +115,6 @@ class TRTEngine:
                 f"input shape {arr.shape} != engine input {self._input_shape}"
             )
 
-        # H2D, execute, D2H — all on one stream, then synchronize.
         _check(
             cudart.cudaMemcpyAsync(
                 self._d_input,
@@ -145,7 +142,9 @@ class TRTEngine:
         return self._h_output.copy()
 
     def close(self):
-        """Free device resources. Safe to call multiple times."""
+        """Free the device buffers and stream. Safe to call more than once.
+
+        The TensorRT context, engine and runtime are left to refcounting."""
         for attr in ("_d_input", "_d_output"):
             ptr = getattr(self, attr, None)
             if ptr is not None:

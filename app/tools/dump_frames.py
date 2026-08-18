@@ -22,12 +22,13 @@ import cv2
 # the pipeline packages resolve.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import config  # noqa: E402
 from ingest.pipeline import FrameIngest  # noqa: E402
 
-# Box colour bands, BGR. The lower bound is the detector's confidence
-# threshold, so anything red would have been dropped by the live pipeline.
+# Box colour bands, BGR. Red is below the detector's threshold, so it only
+# appears when picks.json came from a replay run at a lower one.
 _CONF_STRONG = 0.5
-_CONF_MARGINAL = 0.35
+_CONF_MARGINAL = config.CONFIDENCE_THRESHOLD
 _COLOR_STRONG = (0, 255, 0)
 _COLOR_MARGINAL = (0, 255, 255)
 _COLOR_WEAK = (0, 0, 255)
