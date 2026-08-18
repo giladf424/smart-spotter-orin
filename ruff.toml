@@ -5,10 +5,9 @@
 # per line, which inflates the files without making them clearer. Keep new
 # code in the surrounding style and let `ruff check` catch real problems.
 #
-# ruff is not installed on the host. Run it in the container:
-#   docker run --rm -v ~/smart_spotter/orin:/repo -w /repo \
-#     --entrypoint bash smart-spotter-orin:dev \
-#     -c "pip3 install -q --break-system-packages ruff && ruff check ."
+# Installed on the host with pipx (~/.local/bin/ruff). From the repo root:
+#   ruff check .
+#   ruff check . --fix     # applies the auto-fixable findings
 
 target-version = "py312"
 # PEP 8's own limit, which the existing comment wrapping already targets.
