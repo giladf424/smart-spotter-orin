@@ -34,9 +34,9 @@ class _Probe:
     def on_frame(self, frame_id, frame_bgr):
         h, w = frame_bgr.shape[:2]
         self.records.append((frame_id, w, h))
-        # Light per-frame trace (stderr so it doesn't pollute any piped output).
-        print(f"[probe] frame {len(self.records):>4}  frame_id={frame_id}  {w}x{h}",
-              file=sys.stderr)
+        # Per-frame trace on stderr, so piped stdout stays clean.
+        print(f"[probe] frame {len(self.records):>4}  "
+              f"frame_id={frame_id}  {w}x{h}", file=sys.stderr)
 
     def summary(self):
         n = len(self.records)
@@ -49,7 +49,8 @@ class _Probe:
         print(f"frame dimensions:    {dims}")
         if ids and all(i is not None for i in ids):
             contiguous = ids == list(range(ids[0], ids[0] + n))
-            print(f"ids: first={ids[0]} last={ids[-1]} contiguous={contiguous}")
+            print(f"ids: first={ids[0]} last={ids[-1]} "
+                  f"contiguous={contiguous}")
             if not contiguous:
                 # Show where it breaks for debugging.
                 for k in range(1, len(ids)):
@@ -63,8 +64,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="NVDEC + frame_id decode probe.")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--file", help="decode a captured .hevc sample offline")
-    g.add_argument("--live", action="store_true", help="decode the live RTP stream")
-    p.add_argument("--port", type=int, default=5600, help="UDP port for --live")
+    g.add_argument("--live", action="store_true",
+                   help="decode the live RTP stream")
+    p.add_argument("--port", type=int, default=5600,
+                   help="UDP port for --live")
     p.add_argument("--width", type=int, default=1920)
     p.add_argument("--height", type=int, default=1080)
     args = p.parse_args(argv)

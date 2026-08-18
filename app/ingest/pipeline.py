@@ -31,10 +31,10 @@ import collections
 import threading
 
 import gi
-gi.require_version("Gst", "1.0")
-from gi.repository import Gst, GLib  # noqa: E402
 
+gi.require_version("Gst", "1.0")
 import numpy as np  # noqa: E402
+from gi.repository import GLib, Gst  # noqa: E402
 
 from ingest import sei  # noqa: E402
 
@@ -137,7 +137,8 @@ class FrameIngest:
             src += (
                 " ! video/x-h265,stream-format=byte-stream,alignment=au "
                 "! tee name=cap_tee "
-                f"cap_tee. ! queue ! filesink location={capture_path} sync=false "
+                f"cap_tee. ! queue ! filesink location={capture_path} "
+                "sync=false "
                 "cap_tee. ! queue"
             )
 
@@ -147,8 +148,10 @@ class FrameIngest:
             f"{src} "
             f"! nvv4l2decoder "
             f"! nvvidconv "
-            f"! video/x-raw,format=BGRx,width={self._width},height={self._height} "
-            f"! appsink name=sink emit-signals=true max-buffers=2 drop=true sync=false"
+            f"! video/x-raw,format=BGRx,"
+            f"width={self._width},height={self._height} "
+            f"! appsink name=sink emit-signals=true max-buffers=2 "
+            f"drop=true sync=false"
         )
         pipeline = Gst.parse_launch(desc)
 

@@ -7,19 +7,17 @@ Knows NOTHING about images, letterboxing, or detection semantics — it is just
 "FP32 NCHW in, raw output array out". All detection meaning lives in
 postprocess.py.
 
-Uses the native TensorRT Python API (python3-libnvinfer, installed in the image)
-plus cuda-python (cudart) for device memory + stream management. If cuda-python
-is not present on-device, install it once:
-    pip3 install --break-system-packages cuda-python
-(It is the NVIDIA-preferred binding; we avoid pycuda, which isn't in the image.)
+Uses the native TensorRT Python API (python3-libnvinfer) plus cuda-python
+(cudart) for device memory and stream management. Both come from the image.
 """
 
 import numpy as np
 import tensorrt as trt
+
 try:
-    from cuda.bindings import runtime as cudart   # cuda-python >= 12.6 / 13.x
+    from cuda.bindings import runtime as cudart  # cuda-python >= 12.6 / 13.x
 except ImportError:
-    from cuda import cudart                        # legacy layout
+    from cuda import cudart  # legacy layout
 
 
 def _check(err, msg=""):
@@ -67,28 +65,39 @@ class TRTEngine:
             else:
                 self._output_name = name
         if self._input_name is None or self._output_name is None:
-            raise RuntimeError("engine must have exactly one input and one output")
+            raise RuntimeError(
+                "engine must have exactly one input and one output")
 
         # Static shapes — read them once.
-        self._input_shape = tuple(self._context.get_tensor_shape(self._input_name))
-        self._output_shape = tuple(self._context.get_tensor_shape(self._output_name))
+        self._input_shape = tuple(
+            self._context.get_tensor_shape(self._input_name))
+        self._output_shape = tuple(
+            self._context.get_tensor_shape(self._output_name))
 
-        self._input_dtype = trt.nptype(self._engine.get_tensor_dtype(self._input_name))
-        self._output_dtype = trt.nptype(self._engine.get_tensor_dtype(self._output_name))
+        self._input_dtype = trt.nptype(
+            self._engine.get_tensor_dtype(self._input_name))
+        self._output_dtype = trt.nptype(
+            self._engine.get_tensor_dtype(self._output_name))
 
-        self._input_nbytes = int(np.prod(self._input_shape)) * np.dtype(self._input_dtype).itemsize
-        self._output_nbytes = int(np.prod(self._output_shape)) * np.dtype(self._output_dtype).itemsize
+        self._input_nbytes = (int(np.prod(self._input_shape))
+                              * np.dtype(self._input_dtype).itemsize)
+        self._output_nbytes = (int(np.prod(self._output_shape))
+                               * np.dtype(self._output_dtype).itemsize)
 
-        # Pinned host output buffer + device buffers, allocated once and reused.
-        self._d_input = _check(cudart.cudaMalloc(self._input_nbytes), "cudaMalloc input")
-        self._d_output = _check(cudart.cudaMalloc(self._output_nbytes), "cudaMalloc output")
+        # Device buffers and the host output buffer, allocated once and reused.
+        self._d_input = _check(cudart.cudaMalloc(self._input_nbytes),
+                               "cudaMalloc input")
+        self._d_output = _check(cudart.cudaMalloc(self._output_nbytes),
+                                "cudaMalloc output")
         self._h_output = np.empty(self._output_shape, dtype=self._output_dtype)
 
         self._stream = _check(cudart.cudaStreamCreate(), "cudaStreamCreate")
 
         # Bind device addresses to tensor names (TRT 10 tensor-address API).
-        self._context.set_tensor_address(self._input_name, int(self._d_input))
-        self._context.set_tensor_address(self._output_name, int(self._d_output))
+        self._context.set_tensor_address(self._input_name,
+                                         int(self._d_input))
+        self._context.set_tensor_address(self._output_name,
+                                         int(self._d_output))
 
     @property
     def input_shape(self):
@@ -98,7 +107,7 @@ class TRTEngine:
         """Run one forward pass.
 
         input_array: np.ndarray shaped like input_shape (1,3,N,N), FP32, NCHW,
-                     contiguous. Caller (postprocess.preprocess) guarantees this.
+                     contiguous. preprocess() guarantees this.
         returns:     np.ndarray copy of the raw output ([1,300,6]). A COPY, so
                      the caller may keep it past the next infer() call.
         """

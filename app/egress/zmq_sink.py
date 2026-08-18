@@ -19,9 +19,8 @@ The Pi caps at 32 detections per message and ignores unknown fields.
 
 import json
 
-import zmq
-
 import config
+import zmq
 
 
 class ZmqSink:
@@ -45,7 +44,8 @@ class ZmqSink:
             self._connected = True
 
     @staticmethod
-    def build_message(frame_id, timestamp_ms, detections, id_start=config.ID_START,
+    def build_message(frame_id, timestamp_ms, detections,
+                      id_start=config.ID_START,
                       max_detections=config.MAX_DETECTIONS_PER_MSG):
         """Build the wire dict from a list of postprocess.Detection.
 

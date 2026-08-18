@@ -27,9 +27,8 @@ import json
 import sys
 import time
 
-import cv2
-
 import config
+import cv2
 from detect.engine import TRTEngine
 from detect.postprocess import postprocess, preprocess
 from egress.zmq_sink import ZmqSink
@@ -73,15 +72,16 @@ def run_inference(engine, frame_bgr, input_size, frame_id):
 def run_test_image(args):
     frame = cv2.imread(args.test_image, cv2.IMREAD_COLOR)
     if frame is None:
-        print(f"ERROR: could not read image: {args.test_image}", file=sys.stderr)
+        print(f"ERROR: could not read image: {args.test_image}",
+              file=sys.stderr)
         return 2
 
     src_h, src_w = frame.shape[:2]
     if (src_w, src_h) != (config.SOURCE_WIDTH, config.SOURCE_HEIGHT):
         print(
             f"WARNING: test image is {src_w}x{src_h}, not "
-            f"{config.SOURCE_WIDTH}x{config.SOURCE_HEIGHT}. Treating its native "
-            f"dimensions as the source space.",
+            f"{config.SOURCE_WIDTH}x{config.SOURCE_HEIGHT}. Treating its "
+            f"native dimensions as the source space.",
             file=sys.stderr,
         )
 
@@ -90,8 +90,8 @@ def run_test_image(args):
         message, n = run_inference(eng, frame, input_size, args.frame_id)
 
     print(json.dumps(message, indent=2))
-    print(f"[infer] {n} detection(s) kept (conf >= {config.CONFIDENCE_THRESHOLD}).",
-          file=sys.stderr)
+    print(f"[infer] {n} detection(s) kept "
+          f"(conf >= {config.CONFIDENCE_THRESHOLD}).", file=sys.stderr)
 
     if args.push:
         with ZmqSink(endpoint=args.endpoint) as sink:
@@ -110,7 +110,8 @@ def run_stream(args):
 
     # Sink: connect for live and for file+--push; otherwise print-only.
     do_push = args.push or (args.source == "live")
-    sink = ZmqSink(endpoint=args.endpoint, connect=do_push) if do_push else None
+    sink = (ZmqSink(endpoint=args.endpoint, connect=do_push)
+            if do_push else None)
 
     stats = {"frames": 0, "dets": 0, "no_fid": 0}
 
@@ -149,8 +150,8 @@ def run_stream(args):
             sink.close()
 
     print(f"\n[infer] stream ended: frames={stats['frames']} "
-          f"total_dets={stats['dets']} frames_without_frame_id={stats['no_fid']}",
-          file=sys.stderr)
+          f"total_dets={stats['dets']} "
+          f"frames_without_frame_id={stats['no_fid']}", file=sys.stderr)
     return 0
 
 
@@ -165,8 +166,9 @@ def build_arg_parser():
                    help="synthetic frame_id for --test-image")
     # Streaming mode.
     p.add_argument("--source", choices=["file", "live"], default=None,
-                   help="stream source: decode a .hevc (file) or live RTP (live)")
-    p.add_argument("--file", default=None, help="path to .hevc for --source file")
+                   help="stream source: a .hevc (file) or live RTP (live)")
+    p.add_argument("--file", default=None,
+                   help="path to .hevc for --source file")
     p.add_argument("--port", type=int, default=5600,
                    help="UDP port for --source live (default 5600)")
     p.add_argument("--capture", default=None,
@@ -188,7 +190,8 @@ def main(argv=None):
         return run_test_image(args)
     if args.source:
         if args.source == "file" and not args.file:
-            print("ERROR: --source file requires --file <path>", file=sys.stderr)
+            print("ERROR: --source file requires --file <path>",
+                  file=sys.stderr)
             return 2
         return run_stream(args)
 

@@ -66,7 +66,8 @@ def preprocess(frame_bgr, input_size):
     new_w = int(round(src_w * scale))
     new_h = int(round(src_h * scale))
 
-    resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    resized = cv2.resize(frame_bgr, (new_w, new_h),
+                         interpolation=cv2.INTER_LINEAR)
 
     # Center the resized image in the square canvas; pad with 114 (YOLO default).
     pad_x = (input_size - new_w) / 2.0

@@ -56,7 +56,7 @@ def _annotate(frame_bgr, detections):
 
 
 class _Dumper:
-    """Writes an annotated JPEG for each wanted frame_id, then stops decoding."""
+    """Writes an annotated JPEG per wanted frame_id, then stops decoding."""
 
     def __init__(self, picks, out_dir):
         self.picks = picks

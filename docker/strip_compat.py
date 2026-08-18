@@ -1,5 +1,6 @@
 p = "/etc/cdi/nvidia.yaml"
-lines = open(p).read().splitlines(keepends=True)
+with open(p) as f:
+    lines = f.read().splitlines(keepends=True)
 
 # Find the line containing 'enable-cuda-compat'
 target = None
@@ -9,7 +10,7 @@ for i, ln in enumerate(lines):
         break
 assert target is not None, "enable-cuda-compat not found"
 
-# Walk backwards to the start of this hook block ('- hookName: createContainer')
+# Walk back to the start of this hook block ('- hookName: createContainer')
 start = target
 while start >= 0 and "- hookName: createContainer" not in lines[start]:
     start -= 1
@@ -38,5 +39,6 @@ print("Removing lines", start, "to", end - 1, ":")
 print("".join(removed))
 
 new = lines[:start] + lines[end:]
-open(p, "w").write("".join(new))
+with open(p, "w") as f:
+    f.write("".join(new))
 print("done")

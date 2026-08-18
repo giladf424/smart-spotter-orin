@@ -119,10 +119,11 @@ def parse_sei_frame_id(sei_payload_epb):
         payload = rbsp[i:i + payload_size]
         i += payload_size
 
-        if payload_type == _PT_USER_DATA_UNREGISTERED and len(payload) >= 20:
-            if payload[:16] == SNIPE_UUID:
-                return struct.unpack(">I", payload[16:20])[0]
-        # else: not ours (e.g. x265's SEI) — keep scanning.
+        if (payload_type == _PT_USER_DATA_UNREGISTERED
+                and len(payload) >= 20
+                and payload[:16] == SNIPE_UUID):
+            return struct.unpack(">I", payload[16:20])[0]
+        # Anything else (e.g. x265's SEI) is not ours — keep scanning.
 
         # After a message, an rbsp trailing byte (0x80) may follow; if the next
         # byte is the stop bit and we're at the tail, stop.
