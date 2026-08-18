@@ -136,8 +136,10 @@ Engine, read off `models/model.engine`: input `images [1,3,640,640]` FP32 NCHW
 end-to-end regardless of `nms=False`); boxes are xyxy in the 640 letterboxed
 space. Filter on the confidence column (index 4) only — never add manual NMS.
 
-`CONFIDENCE_THRESHOLD = 0.35` in `app/config.py`. Not yet tuned against a
-false-positive review.
+`CONFIDENCE_THRESHOLD = 0.35` in `app/config.py` — tuned by Gilad and
+deliberate. The system **prefers an occasional false positive over a false
+negative**: a missed person is the worse failure. Do not raise this to clean up
+precision without asking.
 
 Next iteration: dual-class (person=0, drone=1) at 960×960, same output layout.
 A swap needs the new ONNX, `CLASS_MAP` and `INPUT_SIZE` in config.py, and

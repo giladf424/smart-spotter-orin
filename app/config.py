@@ -33,7 +33,7 @@ CLASS_MAP = {
 # --- Detection filtering ----------------------------------------------------
 # Applied to column 4 of each output row. This is the only postprocessing
 # filter, because YOLO26 bakes NMS into the graph.
-# Not yet tuned against a false-positive review.
+# Tuned deliberately low: a missed person costs more than a spurious box.
 CONFIDENCE_THRESHOLD = 0.35
 
 # --- Source frame geometry --------------------------------------------------
