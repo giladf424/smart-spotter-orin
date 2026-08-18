@@ -16,7 +16,7 @@ ENGINE_PATH="${ENGINE_PATH:-${MODELS_DIR}/model.engine}"
 FINGERPRINT_PATH="${ENGINE_PATH}.fingerprint"
 PRECISION="${PRECISION:-fp16}"                 # fp16 | fp32
 DETECTOR_INPUT="${DETECTOR_INPUT:-640}"        # 640 interim, 960 target
-# Service entrypoint (the pipeline code we will write next; mounted at /app).
+# Service entrypoint, mounted at /app.
 APP_ENTRY="${APP_ENTRY:-/app/infer.py}"
 
 log() { echo "[entrypoint] $*"; }
@@ -62,12 +62,9 @@ if [[ "${NEED_BUILD}" -eq 1 ]]; then
 fi
 
 # --- Launch service ----------------------------------------------------------
-# If no app yet (layout/smoke-test phase), drop to a shell instead of failing,
-# so the container is usable for the decode probe before infer.py exists.
 if [[ ! -f "${APP_ENTRY}" ]]; then
-    log "no service at ${APP_ENTRY} yet — engine ready; dropping to shell."
-    log "engine: ${ENGINE_PATH}  input: ${DETECTOR_INPUT}  precision: ${PRECISION}"
-    exec /bin/bash
+    log "ERROR: service not found at ${APP_ENTRY}. Mount the app directory."
+    exit 1
 fi
 
 log "starting inference service: ${APP_ENTRY}"

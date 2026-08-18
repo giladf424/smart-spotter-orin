@@ -10,18 +10,6 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Pin to the exact host TRT build. If the host pin file dictates otherwise we mirror it (see below).
 ARG TRT_VERSION=10.16.2.10-1+cuda13.2
 
-# --- 0. Remove CUDA forward-compat libraries ---------------------------------
-# The base image ships /usr/local/cuda*/compat with forward-compat driver libs
-# (libcuda.so.595.*, etc.). On Orin / JetPack 7.2 the nvidia-container-toolkit
-# cudacompat CDI hook panics parsing their ELF header, so the container never
-# starts under --runtime nvidia. These libs are pointless here: the container's
-# CUDA 13.2 already matches the host R595 driver, so there is nothing to be
-# forward-compatible with. Removing them makes the hook a no-op. The real driver
-# libs are still injected from the host at runtime by --runtime nvidia.
-RUN rm -rf /usr/local/cuda/compat \
-           /usr/local/cuda-13/compat \
-           /usr/local/cuda-13.2/compat 2>/dev/null || true
-
 # --- 1. Jetson r39.2 apt repo + signing key (mirrors the host setup) ---------
 # Generic tools needed to add the repo and fetch the key.
 RUN apt-get update && apt-get install -y --no-install-recommends \

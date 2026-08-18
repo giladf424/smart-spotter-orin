@@ -279,8 +279,8 @@ available. As of 2026-08-18 the candidate is still 1.19.1-1.
   all host-side. No need to re-run anything after a rebuild.
 - `/etc/cdi/nvidia.yaml.bak-20260702` is a backup from the cause-B incident.
   Harmless; it defines no devices the runtime reads.
-- **Open item:** `Dockerfile` step 0 removes `/usr/local/cuda*/compat`. The
-  "what did NOT work" list above says this is inert, since the hook runs
-  regardless of image contents — but that has never been tested by actually
-  removing the layer. A rebuild without it will settle the question; record the
-  result here.
+- The Dockerfile used to delete `/usr/local/cuda*/compat`, on the theory that
+  removing the libraries disarmed the hook. It does not. Verified 2026-08-18 by
+  rebuilding without that layer: all three compat directories are present in the
+  image, and the container still starts under `--runtime nvidia`, gets the GPU,
+  and loads NVDEC. The layer was inert and has been removed.
