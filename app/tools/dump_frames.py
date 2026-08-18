@@ -1,11 +1,17 @@
-"""Decode selected frame_ids from a captured .h265 and save JPEGs with the
-detection boxes from a prior replay drawn on them. Runs inside the container:
-    python3 dump_frames.py <capture.h265> <picks.json> <out_dir>
+#!/usr/bin/env python3
+"""Draw a replay's detections onto the frames they came from, for visual audit.
 
-picks.json maps frame_id (string) -> detections list in the wire format
-({"confidence": ..., "bbox": {"x","y","width","height"}, ...}), i.e. entries
-taken directly from a replay's per-frame JSON output.
+Decodes the chosen frame_ids out of a captured .h265 and writes one annotated
+JPEG per frame. Runs inside the container:
+
+    python3 /app/tools/dump_frames.py <capture.h265> <picks.json> <out_dir>
+
+picks.json maps frame_id (string) to a detections list in the wire format
+({"confidence": ..., "bbox": {"x","y","width","height"}, ...}) — entries taken
+straight from a replay's per-frame JSON output.
 """
+
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -18,32 +24,85 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ingest.pipeline import FrameIngest  # noqa: E402
 
-capture, picks_path, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
-picks = {int(k): v for k, v in json.load(open(picks_path)).items()}
-remaining = set(picks)
+# Box colour bands, BGR. The lower bound is the detector's confidence
+# threshold, so anything red would have been dropped by the live pipeline.
+_CONF_STRONG = 0.5
+_CONF_MARGINAL = 0.35
+_COLOR_STRONG = (0, 255, 0)
+_COLOR_MARGINAL = (0, 255, 255)
+_COLOR_WEAK = (0, 0, 255)
 
 
-def on_frame(frame_id, frame_bgr):
-    if frame_id not in remaining:
-        return
-    remaining.discard(frame_id)
+def _band_color(confidence):
+    if confidence >= _CONF_STRONG:
+        return _COLOR_STRONG
+    if confidence >= _CONF_MARGINAL:
+        return _COLOR_MARGINAL
+    return _COLOR_WEAK
+
+
+def _annotate(frame_bgr, detections):
+    """Return a copy of the frame with one labelled box per detection."""
     img = frame_bgr.copy()
-    for d in picks[frame_id]:
-        b = d["bbox"]
-        x, y, w, h = b["x"], b["y"], b["width"], b["height"]
-        # Color by confidence band: green >=0.5, yellow 0.35-0.5, red <0.35,
-        # so detected-vs-marginal is visible at a glance in audit images.
-        c = d["confidence"]
-        color = (0, 255, 0) if c >= 0.5 else (0, 255, 255) if c >= 0.35 else (0, 0, 255)
+    for det in detections:
+        box = det["bbox"]
+        x, y, w, h = box["x"], box["y"], box["width"], box["height"]
+        conf = det["confidence"]
+        color = _band_color(conf)
         cv2.rectangle(img, (x, y), (x + w, y + h), color, 3)
-        cv2.putText(img, f"{c:.2f}", (x, max(y - 8, 20)),
+        cv2.putText(img, f"{conf:.2f}", (x, max(y - 8, 20)),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-    out = f"{out_dir}/frame_{frame_id}.jpg"
-    cv2.imwrite(out, img)
-    print(f"saved {out}")
-    if not remaining:
-        ing.stop()
+    return img
 
 
-ing = FrameIngest(on_frame, source="file", file_path=capture)
-ing.run()
+class _Dumper:
+    """Writes an annotated JPEG for each wanted frame_id, then stops decoding."""
+
+    def __init__(self, picks, out_dir):
+        self.picks = picks
+        self.remaining = set(picks)
+        self.out_dir = out_dir
+        self.ingest = None
+
+    def on_frame(self, frame_id, frame_bgr):
+        if frame_id not in self.remaining:
+            return
+        self.remaining.discard(frame_id)
+        out_path = self.out_dir / f"frame_{frame_id}.jpg"
+        cv2.imwrite(str(out_path), _annotate(frame_bgr, self.picks[frame_id]))
+        print(f"saved {out_path}")
+        if not self.remaining:
+            self.ingest.stop()
+
+    def run(self, capture_path):
+        self.ingest = FrameIngest(self.on_frame, source="file",
+                                  file_path=capture_path)
+        self.ingest.run()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Save annotated JPEGs for chosen frame_ids of a capture.")
+    parser.add_argument("capture", help="captured .h265 to decode")
+    parser.add_argument("picks", help="JSON mapping frame_id -> detections")
+    parser.add_argument("out_dir", help="directory to write JPEGs into")
+    args = parser.parse_args(argv)
+
+    with open(args.picks) as f:
+        picks = {int(k): v for k, v in json.load(f).items()}
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    dumper = _Dumper(picks, out_dir)
+    dumper.run(args.capture)
+
+    if dumper.remaining:
+        print(f"not found in capture: {sorted(dumper.remaining)}",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
