@@ -30,11 +30,6 @@ from ingest.pipeline import FrameIngest  # noqa: E402
 
 def _stop_on_sigint(ing):
     """Ctrl-C handler, run on the GLib main loop.
-
-    The loop owns the process while it runs and does not hand SIGINT back to
-    Python, so the interrupt is registered with GLib rather than caught as
-    KeyboardInterrupt. Returning SOURCE_REMOVE unregisters it, leaving a
-    second Ctrl-C to terminate the usual way.
     """
     print("\n[probe] interrupted, stopping", file=sys.stderr)
     ing.stop()

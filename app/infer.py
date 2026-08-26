@@ -146,10 +146,7 @@ def run_stream(args):
             print(f"[infer] capturing encoded stream to {args.capture}",
                   file=sys.stderr)
 
-    # The GLib loop owns the process while it runs and does not hand SIGINT
-    # back to Python, so Ctrl-C is registered with GLib. Returning
-    # SOURCE_REMOVE unregisters it, leaving a second Ctrl-C to terminate the
-    # usual way.
+    # Ctrl-C handler, run on the GLib main loop.
     def stop_on_sigint():
         print("\n[infer] interrupted, stopping", file=sys.stderr)
         ing.stop()

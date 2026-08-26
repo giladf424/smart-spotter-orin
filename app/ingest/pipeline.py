@@ -130,9 +130,7 @@ class FrameIngest:
         else:
             raise ValueError(f"unknown source: {source}")
 
-        # Pin one access unit per buffer on the parser's src pad. The frame_id
-        # FIFO holds one entry per access unit, so anything else would put the
-        # ids out of step with the frames.
+        # Pin one access unit per buffer on the parser's src pad.
         src += " ! video/x-h265,stream-format=byte-stream,alignment=au"
 
         # Optional capture: tee the parsed byte-stream (encoded side, SEI
