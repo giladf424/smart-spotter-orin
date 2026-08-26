@@ -131,13 +131,17 @@ class FrameIngest:
         else:
             raise ValueError(f"unknown source: {source}")
 
+        # Pin one access unit per buffer on the parser's src pad. The frame_id
+        # FIFO holds one entry per access unit, so anything else would put the
+        # ids out of step with the frames.
+        src += " ! video/x-h265,stream-format=byte-stream,alignment=au"
+
         # Optional capture: tee the parsed byte-stream (encoded side, SEI
         # intact) to a file alongside the decode branch. Both tee branches get
         # a queue so a slow disk cannot stall the decoder.
         if capture_path:
             src += (
-                " ! video/x-h265,stream-format=byte-stream,alignment=au "
-                "! tee name=cap_tee "
+                " ! tee name=cap_tee "
                 f"cap_tee. ! queue ! filesink location={capture_path} "
                 "sync=false "
                 "cap_tee. ! queue"
@@ -156,9 +160,8 @@ class FrameIngest:
         )
         pipeline = Gst.parse_launch(desc)
 
-        # Pad probe on the parser src pad. The frame_id FIFO assumes one
-        # buffer here per access unit; that comes from the alignment h265parse
-        # negotiates downstream, not from anything set here.
+        # Pad probe on the parser src pad. The caps above pin one access unit
+        # per buffer, which is what keeps the FIFO in step with the frames.
         parser = pipeline.get_by_name("parser")
         srcpad = parser.get_static_pad("src")
         srcpad.add_probe(Gst.PadProbeType.BUFFER, self._on_au_probe, None)
