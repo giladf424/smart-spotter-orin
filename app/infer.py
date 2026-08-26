@@ -30,6 +30,7 @@ any clock on the Pi.
 
 import argparse
 import json
+import signal
 import sys
 import time
 
@@ -109,6 +110,7 @@ def run_test_image(args):
 # --- streaming (file or live) ----------------------------------------------
 def run_stream(args):
     # Imported here so --test-image works on hosts without GStreamer/gi.
+    from gi.repository import GLib
     from ingest.pipeline import FrameIngest
 
     eng = TRTEngine(args.engine)
@@ -146,10 +148,19 @@ def run_stream(args):
             print(f"[infer] capturing encoded stream to {args.capture}",
                   file=sys.stderr)
 
+    # The GLib loop owns the process while it runs and does not hand SIGINT
+    # back to Python, so Ctrl-C is registered with GLib. Returning
+    # SOURCE_REMOVE unregisters it, leaving a second Ctrl-C to terminate the
+    # usual way.
+    def stop_on_sigint():
+        print("\n[infer] interrupted, stopping", file=sys.stderr)
+        ing.stop()
+        return GLib.SOURCE_REMOVE
+
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop_on_sigint)
+
     try:
         ing.run()
-    except KeyboardInterrupt:
-        ing.stop()
     finally:
         eng.close()
         if sink is not None:

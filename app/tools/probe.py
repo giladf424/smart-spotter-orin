@@ -11,13 +11,12 @@ many frame_ids were recovered, the frame dimensions, and whether the ids are
 contiguous. That covers NVDEC decoding the stream, the SEI parser picking our
 ids out rather than x265's, and encoded order still matching decoded order.
 
-File mode ends at EOS and prints the summary. Live mode never sees EOS: the
-KeyboardInterrupt path below does not fire, because the GLib loop does not
-hand SIGINT back to Python, so a killed live run prints no summary — read the
-per-frame trace and the heartbeat counters instead.
+File mode ends at end of stream. Live mode runs until Ctrl-C. Both print the
+summary on the way out.
 """
 
 import argparse
+import signal
 import sys
 from pathlib import Path
 
@@ -25,7 +24,21 @@ from pathlib import Path
 # the pipeline packages resolve.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from gi.repository import GLib  # noqa: E402
 from ingest.pipeline import FrameIngest  # noqa: E402
+
+
+def _stop_on_sigint(ing):
+    """Ctrl-C handler, run on the GLib main loop.
+
+    The loop owns the process while it runs and does not hand SIGINT back to
+    Python, so the interrupt is registered with GLib rather than caught as
+    KeyboardInterrupt. Returning SOURCE_REMOVE unregisters it, leaving a
+    second Ctrl-C to terminate the usual way.
+    """
+    print("\n[probe] interrupted, stopping", file=sys.stderr)
+    ing.stop()
+    return GLib.SOURCE_REMOVE
 
 
 class _Probe:
@@ -81,10 +94,9 @@ def main(argv=None):
         ing = FrameIngest(probe.on_frame, source="live", udp_port=args.port,
                           width=args.width, height=args.height)
 
-    try:
-        ing.run()
-    except KeyboardInterrupt:
-        ing.stop()
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT,
+                         _stop_on_sigint, ing)
+    ing.run()
     probe.summary()
     return 0
 
