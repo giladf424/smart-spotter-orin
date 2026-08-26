@@ -12,6 +12,11 @@ models/*.hevc
 # Rendered audit frames and detection dumps for the report — bulky, kept local
 report_assets/
 
+# Working documents, not deliverables
+CLAUDE.md
+models/README.md
+notes/
+
 # Python
 __pycache__/
 *.py[cod]
