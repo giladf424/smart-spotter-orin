@@ -3,7 +3,7 @@ TensorRT engine wrapper: pure engine I/O.
 
 Loads a serialized .engine, allocates its device and host buffers once, and
 runs inference on a preprocessed NCHW FP32 array. It knows nothing about
-images, letterboxing or detection semantics — FP32 NCHW in, raw array out.
+images, letterboxing or detection semantics. FP32 NCHW in, raw array out.
 
 Uses the native TensorRT Python API (python3-libnvinfer) plus cuda-python
 (cudart) for device memory and stream management. Both come from the image.
@@ -52,8 +52,6 @@ class TRTEngine:
 
         self._context = self._engine.create_execution_context()
 
-        # Keeps the last input and the last output it finds, so an engine with
-        # several of either binds the wrong tensor rather than failing here.
         self._input_name = None
         self._output_name = None
         for i in range(self._engine.num_io_tensors):
@@ -66,7 +64,7 @@ class TRTEngine:
         if self._input_name is None or self._output_name is None:
             raise RuntimeError("engine needs at least one input and output")
 
-        # Static shapes — read them once.
+        # Static shapes, read once.
         self._input_shape = tuple(
             self._context.get_tensor_shape(self._input_name))
         self._output_shape = tuple(

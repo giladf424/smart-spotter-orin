@@ -18,7 +18,7 @@ geometry the Pi depends on.
 
 YOLO26 output is end-to-end: [1,300,6], each row [x1,y1,x2,y2,conf,class_id]
 in xyxy pixels of the letterboxed space. NMS is baked into the graph, so we
-run none here — rows are only filtered by confidence (column 4).
+run none here. Rows are only filtered by confidence (column 4).
 """
 
 from dataclasses import dataclass
@@ -70,11 +70,9 @@ def preprocess(frame_bgr, input_size):
     resized = cv2.resize(frame_bgr, (new_w, new_h),
                          interpolation=cv2.INTER_LINEAR)
 
-    # Centre it in the square canvas; 114 is the YOLO default pad value.
-    # The -0.1 before rounding is Ultralytics' convention: with an odd number
-    # of pad pixels it puts the extra one on the bottom/right. postprocess
-    # inverts using the integer pads recorded below, so the two agree however
-    # this rounds.
+    # Centre it in the square canvas. 114 is the YOLO pad value, and the -0.1
+    # before rounding is Ultralytics' convention for an odd pad: the extra
+    # pixel goes to the bottom and the right.
     pad_x = (input_size - new_w) / 2.0
     pad_y = (input_size - new_h) / 2.0
     top = int(round(pad_y - 0.1))

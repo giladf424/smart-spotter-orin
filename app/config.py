@@ -24,10 +24,10 @@ INPUT_SIZE = 640
 
 # --- Classes ----------------------------------------------------------------
 # Model class id (column 5 of the [1,300,6] output) -> the label string the Pi
-# expects. Detections whose class id is missing here are dropped.
+# expects. Detections whose class id is missing here are dropped. The
+# dual-class model adds 1: "DRONE".
 CLASS_MAP = {
     0: "HUMAN",
-    # 1: "DRONE",   # uncomment for the dual-class model
 }
 
 # --- Detection filtering ----------------------------------------------------

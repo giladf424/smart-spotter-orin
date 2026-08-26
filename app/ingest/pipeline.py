@@ -16,7 +16,7 @@ frame_id recovery, the key design point:
   so decode order equals display order; and each parser buffer must be one
   whole access unit, so ids and frames stay in step. Check both with
   `tools/probe.py --live`, which reports frame_ids recovered and whether they
-  are contiguous — any drift shows up there immediately.
+  are contiguous. Any drift shows up there immediately.
 
   Because the probe sits ahead of the decoder, it does not matter whether
   NVDEC preserves or strips SEI.
@@ -90,9 +90,9 @@ class FrameIngest:
         self._live = source == "live"
 
         # Join guard: drop access units until the first keyframe arrives.
-        # Decode must start on a keyframe — feeding nvv4l2decoder P-frames
-        # whose references it never saw has been observed to exhaust its input
-        # pool and wedge the pipeline.
+        # Decode must start on a keyframe. A P-frame whose references the
+        # decoder never saw cannot be decoded, and holds an input buffer that
+        # is never released.
         self._await_key = True
         self._dropped_pre_key = 0
 
@@ -105,19 +105,18 @@ class FrameIngest:
         if source == "live":
             # buffer-size must hold at least one whole keyframe. The sender
             # can burst an access unit faster than we drain it, and an
-            # undersized socket buffer drops the tail packets silently,
-            # leaving the depayloader to discard an incomplete unit. The
-            # kernel clamps this to net.core.rmem_max, so raising it here
-            # alone is not enough.
+            # undersized socket buffer drops the tail packets, leaving the
+            # depayloader to discard an incomplete unit. The kernel caps a
+            # socket buffer at net.core.rmem_max, which the host raises to
+            # this same value in /etc/sysctl.d/90-smart-spotter-udp.conf.
             src = (
                 f"udpsrc name=rtpsrc port={udp_port} buffer-size=8388608 "
                 f"caps=\"{_RTP_CAPS}\" "
                 f"! rtpjitterbuffer latency=50 "
                 f"! rtph265depay name=depay "
-                # config-interval=-1 re-inserts cached VPS/SPS/PPS before
-                # every keyframe, so we never depend on how often the sender
-                # repeats them. The decoder can only start on a keyframe that
-                # carries them.
+                # config-interval=-1 re-inserts the cached VPS, SPS and PPS
+                # before every keyframe. The decoder can only start on a
+                # keyframe that carries them.
                 f"! h265parse name=parser config-interval=-1"
             )
         elif source == "file":
@@ -208,10 +207,10 @@ class FrameIngest:
         """Runs once per encoded access unit: drop until the first keyframe,
         then parse the frame_id and queue it in order.
 
-        Keyframes are identified by NAL type — 16-21 covers every IRAP type
-        HEVC currently defines (BLA 16-18, IDR 19-20, CRA 21; 22-23 are
-        reserved) — rather than by the DELTA_UNIT buffer flag, which is not
-        reliable for non-IDR keyframes. Dropped units reach neither the
+        Keyframes are identified by NAL type rather than by the DELTA_UNIT
+        buffer flag, which is not reliable for non-IDR keyframes. Types 16-21
+        cover every IRAP type HEVC currently defines (BLA 16-18, IDR 19-20,
+        CRA 21, with 22-23 reserved). Dropped units reach neither the
         decoder, the capture tee, nor the FIFO, so one unit still yields one
         frame."""
         buf = info.get_buffer()
@@ -268,8 +267,8 @@ class FrameIngest:
         if not ok:
             return Gst.FlowReturn.OK
         try:
-            # Assumes rows are tightly packed at width*4 bytes, with no
-            # padding from nvvidconv; BGRx is 4 bytes/pixel and x is dropped.
+            # BGRx is 4 bytes per pixel and nvvidconv emits tightly packed
+            # rows, so the buffer reshapes directly. The x byte is dropped.
             arr = np.frombuffer(mapinfo.data, dtype=np.uint8)
             arr = arr[: width * height * 4].reshape(height, width, 4)
             frame_bgr = np.ascontiguousarray(arr[:, :, :3])

@@ -123,7 +123,7 @@ def parse_sei_frame_id(sei_payload_epb):
                 and len(payload) >= 20
                 and payload[:16] == SNIPE_UUID):
             return struct.unpack(">I", payload[16:20])[0]
-        # Anything else (e.g. x265's SEI) is not ours — keep scanning.
+        # Anything else, such as x265's own SEI, is not ours. Keep scanning.
 
         # After a message, an rbsp trailing byte (0x80) may follow; if the next
         # byte is the stop bit and we're at the tail, stop.

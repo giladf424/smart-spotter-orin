@@ -7,8 +7,8 @@ JPEG per frame. Runs inside the container:
     python3 /app/tools/dump_frames.py <capture.h265> <picks.json> <out_dir>
 
 picks.json maps frame_id (string) to a detections list in the wire format
-({"confidence": ..., "bbox": {"x","y","width","height"}, ...}) — entries taken
-straight from a replay's per-frame JSON output.
+({"confidence": ..., "bbox": {"x","y","width","height"}, ...}). Entries are
+taken straight from a replay's per-frame JSON output.
 """
 
 import argparse

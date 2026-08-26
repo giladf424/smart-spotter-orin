@@ -15,17 +15,15 @@ each. Every decoded frame produces one message carrying the frame_id echoed
 from the stream's SEI, which the Pi joins back to the pose it recorded at
 capture time.
 
-Frames whose SEI yielded no frame_id are sent with frame_id 0, which the Pi
-cannot tell apart from a genuine frame 0. Those frames are counted separately
-as frames_without_frame_id in the end-of-run line.
+Frames whose SEI yielded no frame_id are sent with frame_id 0, and counted
+separately as frames_without_frame_id in the end-of-run line.
 
 The entrypoint launches this as:
     python3 /app/infer.py --engine ... --input-size "${DETECTOR_INPUT}" "$@"
 so --engine and --input-size override the config defaults.
 
-timestamp_ms is monotonic milliseconds: it has an arbitrary epoch, so it is
-only meaningful for measuring intervals between Orin messages, not against
-any clock on the Pi.
+timestamp_ms is monotonic milliseconds from this box and is informational.
+frame_id is the join key both sides use.
 """
 
 import argparse

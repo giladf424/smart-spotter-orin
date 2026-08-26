@@ -15,8 +15,8 @@ Message schema (locked by the Pi-side contract):
     ]
   }
 Detection count is capped by config.MAX_DETECTIONS_PER_MSG. timestamp_ms is a
-monotonic reading from this box, so it is comparable only to other Orin
-timestamps, not to any clock on the Pi.
+monotonic reading from this box and is informational. frame_id is the join key
+both sides use.
 """
 
 import json
@@ -36,8 +36,8 @@ class ZmqSink:
         self._sock = self._ctx.socket(zmq.PUSH)
         self._sock.setsockopt(zmq.LINGER, 0)
         # send() runs on the GStreamer streaming thread, so it must never
-        # block: a bounded queue plus non-blocking send drops messages when
-        # the Pi is down or slow, rather than freezing decode.
+        # block. A bounded queue plus a non-blocking send keeps decode running
+        # at its own rate whatever the network is doing.
         self._sock.setsockopt(zmq.SNDHWM, 100)
         self._dropped = 0
         self._connected = False
